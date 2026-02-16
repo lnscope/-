@@ -1,2 +1,375 @@
-# -
-贺新春
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>同乐同乐</title>
+  <style>
+    html,body{margin:0;height:100%;background:#0b0b10;overflow:hidden;}
+    canvas{display:block;width:100vw;height:100vh;}
+    .hint{
+      position:fixed;left:0;right:0;bottom:10px;
+      text-align:center;font:500 12px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial;
+      color:rgba(255,210,210,.65);letter-spacing:.08em;
+      pointer-events:none;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hint">轻触放烟花</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 2));
+  let W=0,H=0;
+
+  function resize(){
+    W = Math.floor(innerWidth);
+    H = Math.floor(innerHeight);
+    canvas.width = Math.floor(W*DPR);
+    canvas.height = Math.floor(H*DPR);
+    canvas.style.width = W+'px';
+    canvas.style.height = H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  addEventListener('resize', resize, { passive:true });
+  resize();
+
+  // --------- 时间轴 ---------
+  // stage 0: 0~3.5s 开场烟花爆竹
+  // stage 1: 3.5~8.5s 马年动画
+  // stage 2: 8.5~12.5s 聚字新年快乐
+  // 12.5s循环
+  let t0 = performance.now();
+  let stage = 0;
+
+  // --------- 粒子 ---------
+  const fireworks = [];
+  const sparks = [];
+
+  // --------- 聚字 ---------
+  let textReady=false;
+  let textParticles=[];
+  let textTargets=[];
+  const off = document.createElement('canvas');
+  const octx = off.getContext('2d');
+
+  // --------- 马年动画参数 ---------
+  let horsePhase = 0; // 0..1
+  let horseGlow = 0;
+
+  function reset(){
+    t0 = performance.now();
+    stage = 0;
+    fireworks.length = 0;
+    sparks.length = 0;
+    textReady = false;
+    textParticles = [];
+    textTargets = [];
+    horsePhase = 0;
+    horseGlow = 0;
+  }
+
+  // --------- 生成效果 ---------
+  function spawnCrackerSpark(){
+    const x = W*(0.1+Math.random()*0.8);
+    const y = H*(0.82+Math.random()*0.12);
+    const n = 6 + (Math.random()*8|0);
+    for(let i=0;i<n;i++){
+      const a = (-Math.PI/2) + (Math.random()-0.5)*1.0;
+      const sp = 1.5 + Math.random()*2.8;
+      sparks.push({
+        x,y,
+        vx:Math.cos(a)*sp,
+        vy:Math.sin(a)*sp,
+        life:18+(Math.random()*10|0),
+        max:30,
+        size:1+Math.random()*1.2
+      });
+    }
+  }
+
+  function spawnFirework(x,y,style){
+    const count = style===0 ? 70 : 45;
+    const speed = style===0 ? 3.2 : 2.6;
+    for(let i=0;i<count;i++){
+      const a = Math.random()*Math.PI*2;
+      const sp = speed*(0.35+Math.random());
+      fireworks.push({
+        x,y,
+        vx:Math.cos(a)*sp,
+        vy:Math.sin(a)*sp,
+        g:0.035+Math.random()*0.02,
+        life:42+(Math.random()*18|0),
+        max:60,
+        size:1.2+Math.random()*1.8,
+        hue: (Math.random()<0.72) ? 0 : (Math.random()<0.5 ? 45 : 0) // 红为主，少量金
+      });
+    }
+  }
+
+  // --------- 背景马轮廓（简约） ---------
+  function drawHorseSilhouette(alpha){
+    const cx = W*0.52, cy = H*0.55;
+    const s = Math.min(W,H)*0.38;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = 'rgba(255,120,120,1)';
+    ctx.lineWidth = Math.max(2, Math.floor(W*0.008));
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(cx-0.15*s, cy-0.18*s);
+    ctx.quadraticCurveTo(cx-0.28*s, cy-0.30*s, cx-0.22*s, cy-0.42*s);
+    ctx.quadraticCurveTo(cx-0.12*s, cy-0.55*s, cx-0.02*s, cy-0.43*s);
+    ctx.quadraticCurveTo(cx+0.06*s, cy-0.34*s, cx+0.02*s, cy-0.26*s);
+    ctx.quadraticCurveTo(cx-0.02*s, cy-0.18*s, cx-0.05*s, cy-0.10*s);
+
+    ctx.quadraticCurveTo(cx+0.10*s, cy-0.05*s, cx+0.22*s, cy+0.02*s);
+    ctx.quadraticCurveTo(cx+0.34*s, cy+0.10*s, cx+0.32*s, cy+0.22*s);
+    ctx.quadraticCurveTo(cx+0.30*s, cy+0.34*s, cx+0.20*s, cy+0.30*s);
+
+    ctx.quadraticCurveTo(cx+0.08*s, cy+0.26*s, cx-0.02*s, cy+0.28*s);
+    ctx.quadraticCurveTo(cx-0.16*s, cy+0.32*s, cx-0.20*s, cy+0.18*s);
+    ctx.quadraticCurveTo(cx-0.24*s, cy+0.05*s, cx-0.15*s, cy-0.02*s);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(cx+0.30*s, cy+0.20*s);
+    ctx.quadraticCurveTo(cx+0.40*s, cy+0.28*s, cx+0.34*s, cy+0.36*s);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawHorseRunLine(now){
+    const cx = W*0.52, cy = H*0.55;
+    const s = Math.min(W,H)*0.38;
+
+    const pathPoint = (tt) => {
+      const ang = tt*Math.PI*2;
+      const rx = 0.36*s, ry = 0.26*s;
+      return { x: cx + Math.cos(ang)*rx, y: cy + Math.sin(ang)*ry };
+    };
+
+    const t = horsePhase;
+    const seg = 0.12;
+    const p1 = pathPoint(t);
+    const p2 = pathPoint((t+seg)%1);
+    const p3 = pathPoint((t+seg*2)%1);
+
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.strokeStyle = 'rgba(255,220,220,1)';
+    ctx.lineWidth = Math.max(3, Math.floor(W*0.010));
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(p1.x,p1.y);
+    ctx.quadraticCurveTo(p2.x,p2.y,p3.x,p3.y);
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = '#ffe4e4';
+    ctx.font = `700 ${Math.floor(W*0.07)}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
+    ctx.textAlign = 'center';
+    ctx.fillText('马年', W/2, H*0.18);
+
+    ctx.restore();
+  }
+
+  // --------- 聚字准备与更新 ---------
+  function prepareTextTargets(text){
+    off.width = W; off.height = H;
+    octx.clearRect(0,0,W,H);
+
+    const fontSize = Math.floor(Math.min(W,H)*0.12);
+    octx.font = `800 ${fontSize}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
+    octx.textAlign = 'center';
+    octx.textBaseline = 'middle';
+    octx.fillStyle = '#fff';
+    octx.fillText(text, W/2, H*0.72);
+
+    const img = octx.getImageData(0,0,W,H).data;
+    const gap = 6;
+    const targets = [];
+    for(let y=0;y<H;y+=gap){
+      for(let x=0;x<W;x+=gap){
+        const idx = (y*W+x)*4;
+        if(img[idx+3] > 180) targets.push({x,y});
+      }
+    }
+    textTargets = targets;
+    textParticles = targets.map(t => ({
+      tx:t.x, ty:t.y,
+      x: W*(0.1+Math.random()*0.8),
+      y: H*(0.2+Math.random()*0.55),
+      vx:0, vy:0
+    }));
+    textReady = true;
+  }
+
+  function updateTextParticles(){
+    const k = 0.08, damp = 0.80;
+    for(const p of textParticles){
+      const dx = p.tx - p.x;
+      const dy = p.ty - p.y;
+      p.vx = (p.vx + dx*k) * damp;
+      p.vy = (p.vy + dy*k) * damp;
+      p.x += p.vx;
+      p.y += p.vy;
+    }
+  }
+
+  // --------- 更新粒子 ---------
+  function updateParticles(){
+    for(let i=fireworks.length-1;i>=0;i--){
+      const p = fireworks[i];
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.985;
+      p.vy = p.vy*0.985 + p.g;
+      if(--p.life<=0) fireworks.splice(i,1);
+    }
+    for(let i=sparks.length-1;i>=0;i--){
+      const s = sparks[i];
+      s.x += s.vx; s.y += s.vy;
+      s.vx *= 0.92;
+      s.vy = s.vy*0.92 + 0.10;
+      if(--s.life<=0) sparks.splice(i,1);
+    }
+  }
+
+  // --------- 渲染 ---------
+  function render(now){
+    // 背景渐变
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#0b0b10');
+    g.addColorStop(1,'#12050a');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    // 淡马轮廓
+    drawHorseSilhouette(0.08);
+
+    // 顶部同乐同乐（克制但喜庆）
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.fillStyle = '#ffd7d7';
+    ctx.font = `700 ${Math.floor(W*0.06)}px system-ui,-apple-system,Segoe UI,Roboto,Arial`;
+    ctx.textAlign = 'center';
+    ctx.fillText('同乐同乐', W/2, H*0.10);
+    ctx.restore();
+
+    // stage1: 跑动点亮线
+    if(stage===1){
+      drawHorseRunLine(now);
+    }
+
+    // 烟花
+    for(const p of fireworks){
+      const a = Math.max(0, p.life/p.max);
+      ctx.globalAlpha = a;
+      const color = (p.hue===45)
+        ? `rgba(255,210,120,${a})`
+        : `rgba(255,90,90,${a})`;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // 爆竹火花
+    for(const s of sparks){
+      const a = Math.max(0, s.life/s.max);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = `rgba(255,180,120,${a})`;
+      ctx.beginPath();
+      ctx.arc(s.x,s.y,s.size,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // stage2: 聚字新年快乐
+    if(stage===2 && textReady){
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = 'rgba(255,235,235,0.9)';
+      for(const p of textParticles){
+        ctx.beginPath();
+        ctx.arc(p.x,p.y,1.6,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  // --------- 主循环 ---------
+  function loop(now){
+    const elapsed = (now - t0)/1000;
+
+    if(elapsed < 3.5) stage = 0;
+    else if(elapsed < 8.5) stage = 1;
+    else if(elapsed < 12.5) stage = 2;
+    else { reset(); requestAnimationFrame(loop); return; }
+
+    // 阶段逻辑
+    if(stage===0){
+      if(Math.random() < 0.18){
+        const x = W*(0.15+Math.random()*0.7);
+        const y = H*(0.15+Math.random()*0.35);
+        spawnFirework(x,y,0);
+      }
+      if(Math.random() < 0.35) spawnCrackerSpark();
+    }
+
+    if(stage===1){
+      horsePhase += 0.008; if(horsePhase>1) horsePhase=0;
+      horseGlow = 0.65 + 0.35*Math.sin(now/380);
+      if(Math.random() < 0.06){
+        const x = W*(0.25+Math.random()*0.5);
+        const y = H*(0.18+Math.random()*0.35);
+        spawnFirework(x,y,1);
+      }
+    }
+
+    if(stage===2){
+      if(!textReady) prepareTextTargets('新年快乐');
+      if(textReady) updateTextParticles();
+      if(Math.random() < 0.09){
+        const x = W*(0.18+Math.random()*0.64);
+        const y = H*(0.12+Math.random()*0.35);
+        spawnFirework(x,y,1);
+      }
+    }
+
+    updateParticles();
+    render(now);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // 交互：轻触放烟花（更适合微信里玩一下）
+  function tap(x,y){
+    spawnFirework(x,y,1);
+  }
+  canvas.addEventListener('pointerdown', e => {
+    const r = canvas.getBoundingClientRect();
+    tap(e.clientX - r.left, e.clientY - r.top);
+  }, { passive:true });
+
+  // iOS 微信偶发自动播放/刷新问题：轻触后隐藏提示
+  const hint = document.querySelector('.hint');
+  canvas.addEventListener('pointerdown', () => hint && (hint.style.display='none'), { passive:true });
+
+})();
+</script>
+</body>
+</html>
+
